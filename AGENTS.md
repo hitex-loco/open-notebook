@@ -19,9 +19,9 @@ Or all at once: `make start-all` (status: `make status`, stop: `make stop-all`).
 
 ## Commands
 
-- Tests: `uv run pytest tests/`
+- Tests: `uv run pytest tests/` · single test: `uv run pytest tests/test_sources_api.py::test_name`
 - Python lint/typecheck: `ruff check . --fix` · `uv run python -m mypy .`
-- Frontend (inside `frontend/`): `npm run lint` · `npm run test` · `npm run build`
+- Frontend (inside `frontend/`): `npm run lint` · `npm run test` (single file: `npm run test -- path/to/file.test.ts`) · `npm run build`
 - Docker release: `make docker-release` (see `.github/RELEASE_PROCESS.md`)
 
 ## Hard rules

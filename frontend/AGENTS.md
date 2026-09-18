@@ -6,7 +6,7 @@ Normative rules for working on the Next.js frontend. Architecture and flow walkt
 
 - Dev server: `npm run dev` (port 3000; API must be up at 5055 first)
 - Lint: `npm run lint` (`eslint src/`)
-- Tests: `npm run test` (`vitest run`) · coverage: `npm run test:coverage`
+- Tests: `npm run test` (`vitest run`) · single file: `npm run test -- path/to/file.test.ts` · watch: `npm run test:watch` · coverage: `npm run test:coverage`
 - Build: `npm run build`
 
 ## Hard rules

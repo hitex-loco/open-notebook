@@ -6,7 +6,7 @@ Normative rules for working on the Python backend. Architecture and design ratio
 
 - Run API: `uv run uvicorn api.main:app --port 5055` (Swagger at http://localhost:5055/docs)
 - Background jobs need the worker: `make worker-start` (`surreal-commands-worker --import-modules commands`)
-- Tests: `uv run pytest tests/`
+- Tests: `uv run pytest tests/` · single test: `uv run pytest tests/test_file.py::test_name` (async tests use `pytest-asyncio`)
 - Lint/typecheck: `ruff check . --fix` and `uv run python -m mypy .`
 
 ## API layer (`api/`)
