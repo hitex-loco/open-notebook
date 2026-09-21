@@ -40,6 +40,15 @@ Choose your installation route based on your setup and use case.
 
 ---
 
+### 🔒 My machine has no internet access
+**→ [Air-Gapped Deployment](airgapped-deployment.md)** - Transfer a bundle from a staging VM
+- ✅ Fully offline with self-hosted models
+- ✅ Covers Docker install, images and model weights
+- ⚠️ Requires a second machine with internet to build the bundle
+- ⏱️ Half a day end to end
+
+---
+
 
 ## System Requirements
 
@@ -88,6 +97,7 @@ Choose your installation route based on your setup and use case.
 - [Docker Compose](docker-compose.md) - **Most users**
 - [Single Container](single-container.md) - **Deprecated**
 - [From Source](from-source.md) - **Developers**
+- [Air-Gapped](airgapped-deployment.md) - **Offline / restricted networks**
 
 > **Privacy-first?** Any installation method works with Ollama for 100% local AI. See [Local Quick Start](../0-START-HERE/quick-start-local.md).
 
