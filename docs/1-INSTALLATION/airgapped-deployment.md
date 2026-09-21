@@ -170,10 +170,16 @@ Read the exact `content-core` version out of the base image and pin to it. The e
 ```bash
 cd ~/onb-bundle/images
 
-CCORE=$(docker run --rm lfnovo/open_notebook:${ONB_TAG} \
-  /app/.venv/bin/python -c \
-  "import importlib.metadata as m; print(m.version('content-core'))")
-echo "content-core version: $CCORE"
+# --entrypoint bypasses docker-entrypoint.sh. Without it the script's
+# "[entrypoint] Starting Open Notebook." banner goes to stdout and is
+# captured alongside the version, silently corrupting the pin below.
+CCORE=$(docker run --rm --entrypoint /app/.venv/bin/python \
+  lfnovo/open_notebook:${ONB_TAG} \
+  -c "import importlib.metadata as m; print(m.version('content-core'))")
+
+# Must print a bare version in brackets, e.g. [2.0.4]. Anything else
+# (extra words, more than one line) means the capture picked up log output.
+echo "content-core version: [$CCORE]"
 
 cat > Dockerfile.docling <<EOF
 FROM lfnovo/open_notebook:${ONB_TAG}
