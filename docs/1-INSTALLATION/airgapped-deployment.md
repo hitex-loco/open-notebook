@@ -39,6 +39,8 @@ Pick your embedding model before you start, because it is effectively permanent.
 
 `BAAI/bge-large-en-v1.5` (1024 dimensions, ~1.3 GB) is a solid default. `intfloat/e5-large-v2` is an equivalent alternative. If disk or VRAM is tight, `BAAI/bge-small-en-v1.5` is ~130 MB and noticeably weaker.
 
+Decide whether you need OCR for scanned documents. That means building a derived image with Docling baked in (step 3b), which adds 2–4 GB to the image and a further 1–2 GB of model cache, and means you maintain that image across upgrades. Without it, scanned PDFs and image files fail on upload.
+
 Decide whether you need podcasts or audio transcription. Both need text-to-speech and speech-to-text, which vLLM does not serve. That means adding a Speaches container and its model weights to the bundle. If you skip it, everything else still works — those default slots stay empty and the features are simply unavailable.
 
 ## Phase A, step 1: Prepare the staging VM
@@ -153,6 +155,59 @@ Expect roughly 2–3 GB compressed. If you also want podcasts, add `ghcr.io/spea
 
 The image already solves the tokenizer problem for you. The Dockerfile pre-downloads tiktoken's `o200k_base` encoding at build time into `/app/tiktoken-cache`, deliberately outside `/app/data` so a volume mount cannot shadow it. Token counting works offline with no action on your part.
 
+## Phase A, step 3b: Build the Docling image (OCR)
+
+Skip this section if you do not need OCR, scanned PDFs or image sources.
+
+Docling normally installs itself from PyPI on first boot, which cannot work air-gapped. The entrypoint probes the venv on every boot with `has_module docling` and skips the install when the package is already present, so baking it into the image sidesteps the network entirely. The venv lives in the image layer, not on the data volume, which is exactly why this has to be an image change rather than a cached install.
+
+Two separate things must come across: the Python package, and Docling's ML models. The models are pulled from Hugging Face on first *use*, not at install time, so installing the package alone leaves you with a runtime that fails on the offline host.
+
+### Build the derived image
+
+Read the exact `content-core` version out of the base image and pin to it. The entrypoint pins for a reason: the extra's transitive dependencies have to stay compatible with what is already locked in the image.
+
+```bash
+cd ~/onb-bundle/images
+
+CCORE=$(docker run --rm lfnovo/open_notebook:${ONB_TAG} \
+  /app/.venv/bin/python -c \
+  "import importlib.metadata as m; print(m.version('content-core'))")
+echo "content-core version: $CCORE"
+
+cat > Dockerfile.docling <<EOF
+FROM lfnovo/open_notebook:${ONB_TAG}
+RUN /app/.venv/bin/python -m pip install --no-cache-dir \
+    "content-core[docling]==${CCORE}"
+EOF
+
+docker build -f Dockerfile.docling -t open_notebook-docling:${ONB_TAG} .
+```
+
+Expect the image to grow by roughly 2–4 GB — Docling pulls torch and transformers.
+
+Confirm the package is importable before going further.
+
+```bash
+docker run --rm open_notebook-docling:${ONB_TAG} \
+  /app/.venv/bin/python -c "import docling; print('docling ok')"
+```
+
+### Seed the Docling models
+
+The reliable way to populate the model cache is to run the real extraction path once, during the Phase A step 6 dry-run, using this image instead of the stock one. Start the stack, upload a scanned PDF through the UI, and let the worker pull whatever Docling needs.
+
+`HF_HOME` defaults to `/app/data/.cache/huggingface`, which is inside the `notebook_data` volume. **Copy it out before the step 6 teardown deletes that directory.**
+
+```bash
+cp -r notebook_data/.cache/huggingface ~/onb-bundle/models/hf-cache
+du -sh ~/onb-bundle/models/hf-cache    # expect roughly 1–2 GB
+```
+
+If the uploaded scan produced real text in the UI, the cache is complete and correct. If it came back empty or the source failed, fix it here on the networked VM rather than discovering it offline — that is the entire point of the dry-run.
+
+Use `open_notebook-docling:${ONB_TAG}` in place of `lfnovo/open_notebook:${ONB_TAG}` in the `docker save` command in step 3, and in the `image:` line of your compose file.
+
 ## Phase A, step 4: Download the embedding model
 
 This is the piece you do not already have. Download the full repository — config files and the tokenizer matter as much as the weights, and vLLM will fail to load without them.
@@ -238,9 +293,18 @@ SURREAL_PASSWORD=replace-with-a-db-password
 SURREAL_NAMESPACE=open_notebook
 SURREAL_DATABASE=open_notebook
 
-# Leave these OFF. Setting either triggers a PyPI install at first boot
-# that cannot succeed air-gapped.
-# OPEN_NOTEBOOK_ENABLE_DOCLING=false
+# Docling is baked into the image (step 3b), so the entrypoint finds it
+# already installed and skips the PyPI install. Setting the flag is not
+# strictly required — availability is probed by import, not by this flag —
+# but it documents the intent and matches the hint the Settings UI shows.
+OPEN_NOTEBOOK_ENABLE_DOCLING=true
+
+# Turns any stray Hugging Face lookup into an immediate error instead of a
+# long timeout. The model cache is already on the volume.
+HF_HUB_OFFLINE=1
+
+# Leave this OFF. It triggers a PyPI install plus a Chromium download at
+# first boot that cannot succeed air-gapped.
 # OPEN_NOTEBOOK_ENABLE_CRAWL4AI=false
 ```
 
@@ -298,9 +362,10 @@ Your bundle directory should now hold four things.
 
 | Path | Contents | Approx size |
 | --- | --- | --- |
-| `images/onb-images.tar.gz` | Open Notebook + SurrealDB | 2–3 GB |
+| `images/onb-images.tar.gz` | Open Notebook (Docling build) + SurrealDB | 5–7 GB |
 | `docker-packages/*.rpm` | Docker engine and dependencies | ~200 MB |
 | `models/bge-large-en-v1.5/` | Embedding weights and tokenizer | 1.3 GB |
+| `models/hf-cache/` | Docling layout and OCR models | 1–2 GB |
 | `config/` | compose, `.env`, digests, scripts | tiny |
 
 Generate checksums before packing, so corruption in transit is detectable rather than mysterious.
@@ -578,6 +643,15 @@ Work through these in order. Each one exercises a different layer, so the first 
 - [ ] Ask a question in chat and get a grounded answer
 - [ ] Run a search and get results ranked by relevance
 
+With the Docling image, add two more checks. The capabilities endpoint probes what is actually importable rather than trusting the enable flag, so it is the honest answer about whether OCR is live.
+
+```bash
+curl -s localhost:5055/api/capabilities
+# expect: {"docling_available": true, ...}
+```
+
+Then upload a scanned PDF and confirm it extracts real text. In Settings, the document engine can stay on `auto` — content-core routes to Docling when it is available — and the OCR toggle defaults to on. If `docling_available` is false, the image is wrong; if it is true but the scan comes back empty, the model cache did not come across.
+
 The source-processing check is the important one. It proves the worker is alive, the embedding endpoint is reachable, and vectors are being written. If a source sits at `queued` indefinitely, check the worker first.
 
 ```bash
@@ -594,7 +668,7 @@ One behaviour to expect rather than debug: the Ask feature asks the model for a 
 
 **URL and YouTube sources will not work.** Fetching remote content is inherently online. Only intranet URLs your host can actually reach will resolve. Local files, uploads and pasted text are unaffected.
 
-**No OCR, scanned PDFs or image sources.** These need Docling, which installs from PyPI at first boot and cannot succeed air-gapped. Text-layer PDFs, Office documents and EPUB extract normally without it.
+**OCR and scanned PDFs work only if you built the Docling image** in step 3b and carried its model cache across. On the stock image Docling is absent, and a scanned PDF fails fast: extraction returns empty, the graph raises `ValueError`, and because `ValueError` is in the command's `stop_on` list the job is marked failed with no retry. The message reads "Could not extract any text content from this source." That is a clear failure rather than a silently empty document, but it is a failure.
 
 **No JavaScript-rendered page capture.** That needs the Crawl4AI runtime and a bundled Chromium, also a first-boot install.
 
