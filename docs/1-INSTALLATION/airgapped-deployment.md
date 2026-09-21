@@ -212,7 +212,7 @@ du -sh ~/onb-bundle/models/hf-cache    # expect roughly 1–2 GB
 
 If the uploaded scan produced real text in the UI, the cache is complete and correct. If it came back empty or the source failed, fix it here on the networked VM rather than discovering it offline — that is the entire point of the dry-run.
 
-Use `open_notebook-docling:${ONB_TAG}` in place of `lfnovo/open_notebook:${ONB_TAG}` in the `docker save` command in step 3, and in the `image:` line of your compose file.
+From here on this image replaces the stock one. Use `open_notebook-docling:${ONB_TAG}` in place of `lfnovo/open_notebook:${ONB_TAG}` in the `docker save` command in step 3, and in the `image:` line of the compose file in step 5. Shipping the stock image with `OPEN_NOTEBOOK_ENABLE_DOCLING=true` set is the most likely way to get this wrong: the entrypoint tries a PyPI install, fails, logs a warning, and boots without OCR.
 
 ## Phase A, step 4: Download the embedding model
 
@@ -267,7 +267,9 @@ services:
     restart: always
 
   open_notebook:
-    image: lfnovo/open_notebook:1.14.0
+    # Without OCR:  image: lfnovo/open_notebook:1.14.0
+    # With OCR, the derived image from step 3b that has Docling baked in:
+    image: open_notebook-docling:1.14.0
     pull_policy: never
     ports:
       - "8502:8502"
@@ -281,6 +283,8 @@ services:
       - surrealdb
     restart: always
 ```
+
+Docling gets no service entry of its own. It is a Python library that content-core imports in-process inside the Open Notebook container — there is no daemon, no port and no separate container to run. That is why enabling OCR is an image change plus two environment variables, not a new compose service. Its model cache lives on the `notebook_data` volume you already mount, so no extra volume is needed either.
 
 Keep SurrealDB bound to `127.0.0.1`. It runs with simple credentials and the app reaches it over the internal compose network regardless — publishing it on `0.0.0.0` would let anyone who can reach the host connect.
 
