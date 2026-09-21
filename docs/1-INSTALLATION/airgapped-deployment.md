@@ -723,6 +723,7 @@ Keep the transfer bundle and its checksums after a successful deployment. Rebuil
 
 ## Related
 
+- [Air-Gapped Deployment: Working Notes](airgapped-deployment-notes.md) — why the runbook says what it says
 - [Docker Compose installation](docker-compose.md)
 - [Content processing engines](../3-USER-GUIDE/content-processing-engines.md) — why Docling and Crawl4AI stay disabled
 - [Security configuration](../5-CONFIGURATION/security.md)
